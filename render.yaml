@@ -1,0 +1,18 @@
+# Render Blueprint - New > Blueprint > pick this repo
+services:
+  - type: web
+    name: bean-leaf-doctor
+    runtime: docker
+    plan: starter            # 512 MB 'free' works for prediction; retraining needs >=2 GB (standard)
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: RETRAIN_THRESHOLD
+        value: "30"
+      - key: AUTO_RETRAIN
+        value: "true"
+    # Uncomment to keep uploads/retrained models across deploys (paid plans):
+    # disk:
+    #   name: model-store
+    #   mountPath: /app/persist
+    #   sizeGB: 2
