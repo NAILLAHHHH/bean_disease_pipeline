@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bean Leaf Doctor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --surface-0:#f4f4f1; --surface-1:#fcfcfb; --border:#e2e1dc;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7974;
+  --accent:#1f6f43; --accent-ink:#fff;
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a;
+  --good:#1a7f37; --warn:#b26a00; --bad:#c62828; --grid:#e8e7e2;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --surface-0:#121211; --surface-1:#1a1a19; --border:#2e2d2a;
+    --text-primary:#f0efec; --text-secondary:#c3c2b7; --text-muted:#8f8e86;
+    --accent:#3fa36b; --accent-ink:#0b0b0b;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+    --good:#4cc26a; --warn:#e0a030; --bad:#ef6b6b; --grid:#2a2a28;
+  }
+}
+:root[data-theme="dark"]{
+  --surface-0:#121211; --surface-1:#1a1a19; --border:#2e2d2a;
+  --text-primary:#f0efec; --text-secondary:#c3c2b7; --text-muted:#8f8e86;
+  --accent:#3fa36b; --accent-ink:#0b0b0b;
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+  --good:#4cc26a; --warn:#e0a030; --bad:#ef6b6b; --grid:#2a2a28;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-0);color:var(--text-primary);
+  font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:var(--surface-1);border-bottom:1px solid var(--border);padding:14px 16px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+header .wrap{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;padding:0}
+h1{font-size:20px;margin:0} h2{font-size:17px;margin:0 0 12px} h3{font-size:14px;margin:0 0 8px;color:var(--text-secondary)}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{background:none;border:1px solid transparent;border-radius:8px;padding:6px 12px;color:var(--text-secondary);cursor:pointer;font:inherit}
+nav button.active{border-color:var(--border);background:var(--surface-0);color:var(--text-primary);font-weight:600}
+main{padding:20px 0 48px}
+section{display:none} section.active{display:block}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.card{background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:16px;min-width:0}
+.tiles{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:16px}
+.tile{background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.tile .k{font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.tile .v{font-size:24px;font-weight:650;font-variant-numeric:tabular-nums}
+.tile .s{font-size:12px;color:var(--text-secondary)}
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--text-muted)}
+.ok .dot{background:var(--good)} .down .dot{background:var(--bad)} .busy .dot{background:var(--warn)}
+button.primary,button.secondary{border-radius:8px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink);border:0}
+button.secondary{background:var(--surface-0);color:var(--text-primary);border:1px solid var(--border)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.drop{border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;color:var(--text-secondary);cursor:pointer}
+.drop.hover{border-color:var(--accent)}
+input[type=file]{display:none}
+select,input[type=number]{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-0);color:var(--text-primary)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.preview{max-width:100%;max-height:260px;border-radius:10px;display:block;margin:12px auto 0}
+.bar{display:grid;grid-template-columns:130px 1fr 52px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bar .track{height:10px;background:var(--surface-0);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
+.bar .fill{height:100%;border-radius:4px}
+.muted{color:var(--text-muted);font-size:13px}
+pre.log{background:var(--surface-0);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;max-height:220px;overflow:auto;white-space:pre-wrap;margin:12px 0 0}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:right}
+th:first-child,td:first-child{text-align:left}
+.cm td{text-align:center;font-weight:600}
+.chart{position:relative;height:240px}
+.story{font-size:14px;color:var(--text-secondary)} .story b{color:var(--text-primary)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--text-secondary);margin-bottom:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.samples{display:flex;gap:8px;flex-wrap:wrap}
+.samples figure{margin:0;flex:1 1 90px;text-align:center;font-size:12px;color:var(--text-secondary)}
+.samples img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
+.table-scroll{overflow-x:auto}
+@media (max-width:600px){ .bar{grid-template-columns:100px 1fr 44px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div>
+      <h1>🌱 Bean Leaf Doctor</h1>
+      <div class="muted">Classifies bean leaves as angular leaf spot, bean rust or healthy</div>
+    </div>
+    <div id="hdrStatus" class="status"><span class="dot"></span><span>connecting…</span></div>
+    <nav id="nav">
+      <button data-tab="monitor" class="active">Monitor</button>
+      <button data-tab="predict">Predict</button>
+      <button data-tab="insights">Data insights</button>
+      <button data-tab="model">Model</button>
+      <button data-tab="retrain">Upload &amp; retrain</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+
+<!-- ============ MONITOR ============ -->
+<section id="monitor" class="active">
+  <div class="tiles">
+    <div class="tile"><div class="k">Status</div><div class="v" id="mStatus">–</div><div class="s" id="mContainer"></div></div>
+    <div class="tile"><div class="k">Up-time</div><div class="v" id="mUptime">–</div><div class="s" id="mStarted"></div></div>
+    <div class="tile"><div class="k">Model version</div><div class="v" id="mVersion">–</div><div class="s" id="mAcc"></div></div>
+    <div class="tile"><div class="k">Health-check latency</div><div class="v" id="mPing">–</div><div class="s">round trip from this browser</div></div>
+    <div class="tile"><div class="k">Predictions served</div><div class="v" id="mPreds">–</div><div class="s" id="mP95"></div></div>
+  </div>
+  <div class="grid">
+    <div class="card"><h2>Response time (last 60 health checks)</h2><div class="chart"><canvas id="cPing"></canvas></div></div>
+    <div class="card"><h2>Endpoint latency on this container</h2>
+      <div class="table-scroll"><table id="tEndpoints"><thead><tr><th>Endpoint</th><th>Requests</th><th>Avg ms</th><th>p95 ms</th><th>Errors</th></tr></thead><tbody></tbody></table></div>
+      <p class="muted">Collected by the API's timing middleware. Behind a load balancer each refresh may land on a different container.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PREDICT ============ -->
+<section id="predict">
+  <div class="grid">
+    <div class="card">
+      <h2>Predict one leaf</h2>
+      <label class="drop" id="predDrop">Drop a bean-leaf photo here, or click to choose
+        <input type="file" id="predFile" accept="image/*"></label>
+      <img id="predImg" class="preview" alt="" hidden>
+      <div class="row"><span class="muted">No photo handy? Try a test image:</span>
+        <button class="secondary" data-sample="angular_leaf_spot">Leaf spot</button>
+        <button class="secondary" data-sample="bean_rust">Rust</button>
+        <button class="secondary" data-sample="healthy">Healthy</button></div>
+    </div>
+    <div class="card">
+      <h2>Result</h2>
+      <div id="predOut" class="muted">Upload an image to see the diagnosis.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSIGHTS ============ -->
+<section id="insights">
+  <div class="legend" id="legend"></div>
+  <div class="grid">
+    <div class="card"><h2>Images per class</h2><p class="muted" style="margin-top:-8px">Solid bars are train, faded bars are test</p><div class="chart"><canvas id="cCounts"></canvas></div>
+      <p class="story">The classes are <b>balanced</b> (~340 training images each), so accuracy is a fair headline metric and no class weighting is needed.</p></div>
+    <div class="card"><h2>Example leaves</h2><div class="samples" id="samples"></div>
+      <p class="story">Field photos taken on smartphones in Uganda: busy backgrounds, mixed lighting and leaves at different angles, which is why augmentation matters.</p></div>
+  </div>
+  <h2 style="margin-top:24px">Three features and what they say</h2>
+  <div class="grid">
+    <div class="card"><h3>Feature 1 · Green-pixel ratio</h3><div class="chart"><canvas id="cGreen"></canvas></div>
+      <p class="story" id="storyGreen"></p></div>
+    <div class="card"><h3>Feature 2 · Brown / lesion-pixel ratio</h3><div class="chart"><canvas id="cBrown"></canvas></div>
+      <p class="story" id="storyBrown"></p></div>
+    <div class="card"><h3>Feature 3 · Brightness (mean luminance)</h3><div class="chart"><canvas id="cBright"></canvas></div>
+      <p class="story" id="storyBright"></p></div>
+    <div class="card"><h3>Green vs brown, one dot per image</h3><div class="chart"><canvas id="cScatter"></canvas></div>
+      <p class="story">Healthy leaves sit in the <b>high-green, low-brown</b> corner. The two diseases overlap heavily on colour alone, so the CNN has to learn spot <b>shape and texture</b>: round rust pustules vs angular, vein-bounded lesions.</p></div>
+  </div>
+  <div class="card" style="margin-top:16px"><h2>Feature means by class</h2><div class="table-scroll"><table id="tFeat"></table></div></div>
+</section>
+
+<!-- ============ MODEL ============ -->
+<section id="model">
+  <div class="tiles" id="modelTiles"></div>
+  <div class="grid">
+    <div class="card"><h2>Confusion matrix (held-out test set)</h2><div class="table-scroll"><table class="cm" id="tCM"></table></div>
+      <p class="muted">Rows are true classes, columns are predictions.</p></div>
+    <div class="card"><h2>Per-class metrics</h2><div class="table-scroll"><table id="tPerClass"></table></div></div>
+    <div class="card"><h2>Training curve: validation accuracy</h2><div class="chart"><canvas id="cHist"></canvas></div></div>
+    <div class="card"><h2>Model versions</h2><div class="table-scroll"><table id="tVersions"></table></div></div>
+  </div>
+</section>
+
+<!-- ============ RETRAIN ============ -->
+<section id="retrain">
+  <div class="grid">
+    <div class="card">
+      <h2>1 · Upload new labelled data</h2>
+      <p class="muted">Select many images of one class, or a <b>.zip</b> with folders named <code>angular_leaf_spot/</code>, <code>bean_rust/</code>, <code>healthy/</code>.</p>
+      <label class="drop" id="upDrop">Drop images or a .zip here, or click to choose
+        <input type="file" id="upFiles" multiple accept="image/*,.zip"></label>
+      <div class="row">
+        <label>Label for loose images
+          <select id="upLabel"><option value="">(from zip folders)</option>
+            <option>angular_leaf_spot</option><option>bean_rust</option><option>healthy</option></select></label>
+        <button class="primary" id="btnUpload" disabled>Upload</button>
+      </div>
+      <pre class="log" id="upOut" hidden></pre>
+    </div>
+    <div class="card">
+      <h2>2 · Retrain</h2>
+      <div class="tiles" style="grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">New images waiting</div><div class="v" id="pending">–</div><div class="s" id="threshold"></div></div>
+        <div class="tile"><div class="k">Job</div><div class="v" id="jobState">–</div><div class="s" id="jobReason"></div></div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnRetrain">Retrain with new data</button>
+        <button class="secondary" id="btnScratch">Full training from scratch</button>
+      </div>
+      <p class="muted">Retraining warm-starts from the production model, adds the uploaded images, and re-checks the held-out test set. The new version is promoted only if it isn't worse.</p>
+      <pre class="log" id="jobLog">no job yet</pre>
+    </div>
+    <div class="card">
+      <h2>3 · Evaluate the model in production</h2>
+      <p class="muted">Upload a labelled .zip (class folders) of fresh field images. The live model is scored with every metric. If accuracy falls below the drift threshold, those images can start a retrain automatically.</p>
+      <label class="drop" id="evDrop">Drop a labelled .zip here, or click to choose
+        <input type="file" id="evFile" accept=".zip"></label>
+      <div class="row"><label><input type="checkbox" id="evRetrain"> retrain automatically if drift is detected</label>
+        <button class="primary" id="btnEval" disabled>Evaluate</button></div>
+      <div id="evOut"></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+const CLASSES=["angular_leaf_spot","bean_rust","healthy"];
+const NICE={angular_leaf_spot:"Angular leaf spot",bean_rust:"Bean rust",healthy:"Healthy"};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const color=c=>css("--series-"+(CLASSES.indexOf(c)+1));
+const $=id=>document.getElementById(id);
+const fmtPct=v=>v==null?"–":(v*100).toFixed(1)+"%";
+const fmtDur=s=>{s=Math.floor(s);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m ${s%60}s`;};
+const charts={};
+function chartDefaults(){
+  Chart.defaults.color=css("--text-secondary");Chart.defaults.borderColor=css("--grid");
+  Chart.defaults.font.family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+  Chart.defaults.plugins.legend.display=false;Chart.defaults.maintainAspectRatio=false;
+  Chart.defaults.plugins.tooltip.mode="index";Chart.defaults.plugins.tooltip.intersect=false;
+}
+function mk(id,cfg){charts[id]?.destroy();charts[id]=new Chart($(id),cfg);return charts[id];}
+
+// ---------- tabs ----------
+const loaded={};
+document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("active",x===b));
+  document.querySelectorAll("main section").forEach(s=>s.classList.toggle("active",s.id===b.dataset.tab));
+  ({insights:loadInsights,model:loadModel,retrain:loadRetrain})[b.dataset.tab]?.();
+  try{localStorage.setItem("tab",b.dataset.tab)}catch(e){}
+});
+
+// ---------- monitor ----------
+const pings=[];let lastHealth=null;
+async function poll(){
+  const t0=performance.now();let h=null;
+  try{const r=await fetch("/health",{cache:"no-store"});h=await r.json();}catch(e){}
+  const ms=performance.now()-t0;
+  pings.push({t:new Date().toLocaleTimeString(),ms:h?ms:null});if(pings.length>60)pings.shift();
+  const hs=$("hdrStatus");
+  if(!h){hs.className="status down";hs.lastChild.textContent="API unreachable";$("mStatus").textContent="DOWN";}
+  else{
+    lastHealth=h;
+    const busy=h.retraining;hs.className="status "+(busy?"busy":h.model_ready?"ok":"down");
+    hs.lastChild.textContent=busy?"retraining…":h.model_ready?`online · ${fmtDur(h.uptime_seconds)}`:"no model";
+    $("mStatus").textContent=h.status.toUpperCase();$("mContainer").textContent="container "+h.container;
+    $("mUptime").textContent=fmtDur(h.uptime_seconds);$("mStarted").textContent="since "+new Date(h.started_at).toLocaleString();
+    $("mVersion").textContent=h.model_version||"–";$("mPing").textContent=ms.toFixed(0)+" ms";
+  }
+  const c=charts.cPing;
+  if(c){c.data.labels=pings.map(p=>p.t);c.data.datasets[0].data=pings.map(p=>p.ms);c.update("none");}
+}
+async function pollMonitoring(){
+  try{
+    const m=await (await fetch("/monitoring",{cache:"no-store"})).json();
+    const tb=$("tEndpoints").tBodies[0];tb.innerHTML="";
+    Object.entries(m.endpoints).sort((a,b)=>b[1].count-a[1].count).forEach(([p,v])=>{
+      tb.insertAdjacentHTML("beforeend",`<tr><td>${p}</td><td>${v.count}</td><td>${v.avg_ms}</td><td>${v.p95_ms}</td><td>${v.errors}</td></tr>`);});
+    const pr=m.endpoints["/predict"];$("mPreds").textContent=pr?pr.count:0;
+    $("mP95").textContent=pr?`p95 ${pr.p95_ms} ms on ${m.container}`:"none yet on "+m.container;
+  }catch(e){}
+}
+function initMonitor(){
+  mk("cPing",{type:"line",data:{labels:[],datasets:[{label:"Round trip (ms)",data:[],borderColor:css("--series-1"),borderWidth:2,pointRadius:0,tension:.25,spanGaps:false}]},
+    options:{scales:{y:{beginAtZero:true,title:{display:true,text:"ms"}},x:{ticks:{maxTicksLimit:6}}}}});
+  poll();pollMonitoring();setInterval(poll,3000);setInterval(pollMonitoring,5000);
+  fetch("/model/metrics").then(r=>r.json()).then(m=>{const a=m.current?.metrics?.accuracy;$("mAcc").textContent=a?`test accuracy ${fmtPct(a)}`:"";});
+}
+
+// ---------- predict ----------
+function wireDrop(dropId,inputId,onFiles){
+  const d=$(dropId),i=$(inputId);
+  i.onchange=()=>onFiles([...i.files]);
+  d.ondragover=e=>{e.preventDefault();d.classList.add("hover")};
+  d.ondragleave=()=>d.classList.remove("hover");
+  d.ondrop=e=>{e.preventDefault();d.classList.remove("hover");onFiles([...e.dataTransfer.files]);};
+}
+async function predictBlob(blob,name="leaf.jpg"){
+  const img=$("predImg");img.src=URL.createObjectURL(blob);img.hidden=false;
+  $("predOut").innerHTML='<span class="muted">Analysing…</span>';
+  const fd=new FormData();fd.append("file",blob,name);
+  const t0=performance.now();
+  const r=await fetch("/predict",{method:"POST",body:fd});const rt=performance.now()-t0;
+  const j=await r.json();
+  if(!r.ok){$("predOut").textContent=j.detail||"error";return;}
+  const bars=CLASSES.map(c=>`<div class="bar"><span>${NICE[c]}</span><div class="track"><div class="fill" style="width:${(j.probabilities[c]*100).toFixed(1)}%;background:${color(c)}"></div></div><span>${fmtPct(j.probabilities[c])}</span></div>`).join("");
+  $("predOut").innerHTML=`<div class="tile" style="margin-bottom:12px"><div class="k">Diagnosis</div><div class="v">${NICE[j.label]}</div><div class="s">${fmtPct(j.confidence)} confidence</div></div>
+    ${bars}<p class="story">${j.advice}</p>
+    <p class="muted">Model ${j.model_version} · inference ${j.inference_ms} ms · total round trip ${rt.toFixed(0)} ms · container ${j.container}</p>`;
+}
+wireDrop("predDrop","predFile",f=>f[0]&&predictBlob(f[0],f[0].name));
+document.querySelectorAll("[data-sample]").forEach(b=>b.onclick=async()=>{
+  const r=await fetch(`/data/sample/${b.dataset.sample}?seed=${Math.floor(Math.random()*1e6)}`);predictBlob(await r.blob(),"sample.jpg");});
+
+// ---------- insights ----------
+function histChart(id,feat,summary,xlabel){
+  const s=summary[feat],edges=s.bins,labels=edges.slice(0,-1).map((e,i)=>((e+edges[i+1])/2).toFixed(feat==="brightness"?0:2));
+  mk(id,{type:"line",data:{labels,datasets:CLASSES.filter(c=>s.classes[c]).map(c=>({label:NICE[c],data:s.classes[c].hist,borderColor:color(c),backgroundColor:color(c)+"22",fill:true,borderWidth:2,pointRadius:0,tension:.3}))},
+    options:{scales:{x:{title:{display:true,text:xlabel},ticks:{maxTicksLimit:6}},y:{title:{display:true,text:"images"},beginAtZero:true}}}});
+}
+async function loadInsights(){
+  if(loaded.insights)return;loaded.insights=true;
+  $("legend").innerHTML=CLASSES.map(c=>`<span><i style="background:${color(c)}"></i>${NICE[c]}</span>`).join("");
+  const st=await (await fetch("/data/stats")).json();
+  const cnt=st.counts;
+  mk("cCounts",{type:"bar",data:{labels:CLASSES.map(c=>NICE[c]),datasets:["train","test"].map((split,i)=>({label:split,data:CLASSES.map(c=>cnt[split][c]),
+      backgroundColor:CLASSES.map(c=>i?color(c)+"88":color(c)),borderRadius:4,borderSkipped:"bottom"}))},
+    options:{scales:{y:{beginAtZero:true,title:{display:true,text:"images"}}}}});
+  $("samples").innerHTML=CLASSES.map(c=>`<figure><img src="/data/sample/${c}?seed=1" alt="${NICE[c]}"><figcaption>${NICE[c]}</figcaption></figure>`).join("");
+  const S=st.summary,m=(f,c)=>S[f].classes[c].mean;
+  histChart("cGreen","green_ratio",S,"share of clearly green pixels");
+  histChart("cBrown","brown_ratio",S,"share of brown / yellow-brown pixels");
+  histChart("cBright","brightness",S,"mean luminance (0–255)");
+  $("storyGreen").innerHTML=`Healthy leaves average <b>${fmtPct(m("green_ratio","healthy"))}</b> green pixels, against ${fmtPct(m("green_ratio","angular_leaf_spot"))} for leaf spot and ${fmtPct(m("green_ratio","bean_rust"))} for rust. Disease destroys chlorophyll, so <b>lost greenness is the clearest single sign of infection</b>. It separates healthy from sick, but not one disease from the other.`;
+  $("storyBrown").innerHTML=`Diseased leaves carry about <b>${(m("brown_ratio","angular_leaf_spot")/m("brown_ratio","healthy")).toFixed(1)}×</b> more brown/yellow pixels than healthy ones (${fmtPct(m("brown_ratio","bean_rust"))} rust, ${fmtPct(m("brown_ratio","angular_leaf_spot"))} leaf spot, ${fmtPct(m("brown_ratio","healthy"))} healthy). That is necrotic lesion tissue and rust pustules. Healthy photos still score above zero because soil and dry stems show up in the background.`;
+  $("storyBright").innerHTML=`Rust images are <b>darker</b> (mean ${m("brightness","bean_rust").toFixed(0)} vs ${m("brightness","healthy").toFixed(0)} for healthy). Dense dark-brown pustules pull luminance down. Brightness also varies a lot with field lighting, so the model is trained with contrast augmentation and doesn't depend on it.`;
+  const sc=await (await fetch("/data/scatter?x=green_ratio&y=brown_ratio")).json();
+  mk("cScatter",{type:"scatter",data:{datasets:CLASSES.map(c=>({label:NICE[c],data:sc.points.filter(p=>p.label===c),backgroundColor:color(c)+"aa",borderColor:css("--surface-1"),borderWidth:1,pointRadius:4,pointHoverRadius:6}))},
+    options:{plugins:{tooltip:{mode:"nearest",intersect:true,callbacks:{label:x=>`${x.dataset.label}: green ${fmtPct(x.parsed.x)}, brown ${fmtPct(x.parsed.y)}`}}},
+      scales:{x:{title:{display:true,text:"green ratio"}},y:{title:{display:true,text:"brown ratio"}}}}});
+  const feats=Object.keys(S);
+  $("tFeat").innerHTML=`<thead><tr><th>Feature</th>${CLASSES.map(c=>`<th>${NICE[c]}</th>`).join("")}</tr></thead><tbody>`+
+    feats.map(f=>`<tr><td>${f}</td>${CLASSES.map(c=>`<td>${m(f,c).toFixed(3)}</td>`).join("")}</tr>`).join("")+"</tbody>";
+}
+
+// ---------- model ----------
+async function loadModel(){
+  const r=await (await fetch("/model/metrics")).json();const cur=r.current,m=cur.metrics;
+  if(!m){$("modelTiles").innerHTML='<p class="muted">No model trained yet.</p>';return;}
+  const tiles=[["Accuracy",fmtPct(m.accuracy)],["Precision (macro)",fmtPct(m.precision_macro)],["Recall (macro)",fmtPct(m.recall_macro)],
+    ["F1 (macro)",fmtPct(m.f1_macro)],["ROC-AUC (OvR)",m.roc_auc_ovr?.toFixed(3)],["Log-loss",m.log_loss?.toFixed(3)],["Inference",m.avg_inference_ms_per_image?.toFixed(1)+" ms/img"]];
+  $("modelTiles").innerHTML=tiles.map(([k,v])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${cur.version} · ${m.n_samples} test images</div></div>`).join("");
+  const cm=m.confusion_matrix,mx=Math.max(...cm.flat());
+  $("tCM").innerHTML=`<thead><tr><th>true ↓ / pred →</th>${CLASSES.map(c=>`<th style="text-align:center">${NICE[c]}</th>`).join("")}</tr></thead><tbody>`+
+    cm.map((row,i)=>`<tr><td>${NICE[CLASSES[i]]}</td>${row.map((v,j)=>`<td style="background:color-mix(in srgb, var(--series-1) ${Math.round(v/mx*70)}%, transparent)">${v}</td>`).join("")}</tr>`).join("")+"</tbody>";
+  $("tPerClass").innerHTML=`<thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead><tbody>`+
+    CLASSES.map(c=>{const p=m.per_class[c];return`<tr><td>${NICE[c]}</td><td>${fmtPct(p.precision)}</td><td>${fmtPct(p.recall)}</td><td>${fmtPct(p.f1)}</td><td>${p.support}</td></tr>`}).join("")+"</tbody>";
+  const h=cur.history;
+  mk("cHist",{type:"line",data:{labels:h.loss.map((_,i)=>i+1),datasets:[
+    {label:"Validation accuracy",data:h.val_accuracy,borderColor:css("--series-1"),borderWidth:2,pointRadius:3},
+    {label:"Training accuracy",data:h.accuracy,borderColor:css("--text-muted"),borderDash:[4,4],borderWidth:2,pointRadius:0}]},
+    options:{plugins:{legend:{display:true}},scales:{x:{title:{display:true,text:"epoch (head training, then fine-tuning)"}},y:{title:{display:true,text:"accuracy"},suggestedMin:.5,suggestedMax:1}}}});
+  $("tVersions").innerHTML=`<thead><tr><th>Version</th><th>Created</th><th>Accuracy</th><th>F1</th><th>Promoted</th><th>Note</th></tr></thead><tbody>`+
+    r.versions.slice().reverse().map(v=>`<tr><td>${v.version}${v.version===cur.version?" ★":""}</td><td>${new Date(v.created_at).toLocaleString()}</td><td>${fmtPct(v.accuracy)}</td><td>${fmtPct(v.f1_macro)}</td><td>${v.promoted?"yes":"no"}</td><td style="text-align:left">${v.note}</td></tr>`).join("")+"</tbody>";
+}
+
+// ---------- upload / retrain ----------
+let upFiles=[];
+wireDrop("upDrop","upFiles",f=>{upFiles=f;$("btnUpload").disabled=!f.length;$("upDrop").firstChild.textContent=`${f.length} file(s) selected `;});
+$("btnUpload").onclick=async()=>{
+  const fd=new FormData();upFiles.forEach(f=>fd.append("files",f,f.name));
+  const lab=$("upLabel").value;if(lab)fd.append("label",lab);
+  $("btnUpload").disabled=true;$("upOut").hidden=false;$("upOut").textContent="uploading…";
+  const r=await fetch("/upload",{method:"POST",body:fd});const j=await r.json();
+  $("upOut").textContent=r.ok?`saved ${j.total_saved} image(s): ${JSON.stringify(j.saved)}\n`+
+    (j.rejected.length?`rejected: ${j.rejected.slice(0,5).join("; ")}\n`:"")+
+    (j.auto_retrain_triggered?"⚡ threshold reached, retraining started automatically":`${j.pending_uploads} image(s) waiting for retraining`):(j.detail||"error");
+  $("btnUpload").disabled=false;loadRetrain();
+};
+async function startRetrain(scratch){
+  const fd=new FormData();fd.append("from_scratch",scratch);
+  const r=await fetch("/retrain",{method:"POST",body:fd});const j=await r.json();
+  if(!r.ok)alert(j.detail);setTimeout(loadRetrain,800);
+}
+$("btnRetrain").onclick=()=>startRetrain(false);
+$("btnScratch").onclick=()=>confirm("Full training takes several minutes. Continue?")&&startRetrain(true);
+let jobTimer=null;
+async function loadRetrain(){
+  const st=await (await fetch("/data/stats")).json();
+  $("pending").textContent=st.pending_uploads;$("threshold").textContent=`auto-retrain at ${st.retrain_threshold}`;
+  const j=await (await fetch("/retrain/status",{cache:"no-store"})).json();
+  $("jobState").textContent=j.state;$("jobReason").textContent=j.reason||"";
+  let txt=(j.log||[]).join("\n");
+  if(j.result)txt+=`\n\nresult: ${j.result.version} accuracy ${fmtPct(j.result.accuracy)} (previous ${fmtPct(j.result.previous_accuracy)}) → ${j.result.promoted?"promoted":"not promoted"}`;
+  if(j.error)txt+="\n\n"+j.error;
+  $("jobLog").textContent=txt||"no job yet";
+  const running=j.state==="running";$("btnRetrain").disabled=$("btnScratch").disabled=running;
+  clearTimeout(jobTimer);
+  if(running)jobTimer=setTimeout(loadRetrain,2000);
+  else if(loaded.wasRunning){loaded.wasRunning=false;}
+  if(running)loaded.wasRunning=true;
+}
+let evFile=null;
+wireDrop("evDrop","evFile",f=>{evFile=f[0];$("btnEval").disabled=!evFile;$("evDrop").firstChild.textContent=evFile?evFile.name+" ":"";});
+$("btnEval").onclick=async()=>{
+  const fd=new FormData();fd.append("files",evFile,evFile.name);fd.append("retrain_on_drift",$("evRetrain").checked);
+  $("evOut").innerHTML='<p class="muted">Evaluating…</p>';
+  const r=await fetch("/model/evaluate",{method:"POST",body:fd});const m=await r.json();
+  if(!r.ok){$("evOut").textContent=m.detail;return;}
+  $("evOut").innerHTML=`<div class="tiles" style="margin-top:12px">${[["Accuracy",fmtPct(m.accuracy)],["F1 macro",fmtPct(m.f1_macro)],["Precision",fmtPct(m.precision_macro)],["Recall",fmtPct(m.recall_macro)]]
+    .map(([k,v])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+    <p class="status ${m.drift_detected?"down":"ok"}"><span class="dot"></span>${m.drift_detected?`Drift detected: accuracy is below ${fmtPct(m.drift_threshold)}`:"No drift: model is performing as expected"}
+    ${m.retrain_triggered?" · retraining started":""}</p><p class="muted">${m.n_samples} images · model ${m.model_version} · ${m.avg_inference_ms_per_image.toFixed(1)} ms/img · confusion ${JSON.stringify(m.confusion_matrix)}</p>`;
+  if(m.retrain_triggered)loadRetrain();
+};
+
+// ---------- boot ----------
+chartDefaults();initMonitor();
+try{const t=localStorage.getItem("tab");if(t)document.querySelector(`#nav [data-tab="${t}"]`)?.click();}catch(e){}
+</script>
+</body>
+</html>
