@@ -1,0 +1,12 @@
+.venv
+**/__pycache__
+.ipynb_checkpoints
+notebook
+locust/results
+models/versions
+data/uploads
+data/retrain_status.json
+data/.retrain.lock
+data/production_evaluations.jsonl
+sample_data
+*.zip

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+data/uploads/
+data/retrain_status.json
+data/.retrain.lock
+data/production_evaluations.jsonl
+models/versions/
+
+.DS_Store
