@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences
+POST,/predict,CatchResponseError('bad response 502'),1
