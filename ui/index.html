@@ -126,7 +126,7 @@ th:first-child,td:first-child{text-align:left}
       <label class="drop" id="predDrop">Drop a bean-leaf photo here, or click to choose
         <input type="file" id="predFile" accept="image/*"></label>
       <img id="predImg" class="preview" alt="" hidden>
-      <div class="row"><span class="muted">No photo handy? Try a test image:</span>
+      <div class="row"><span class="muted">No photo handy? These labelled test photos should match the button:</span>
         <button class="secondary" data-sample="angular_leaf_spot">Leaf spot</button>
         <button class="secondary" data-sample="bean_rust">Rust</button>
         <button class="secondary" data-sample="healthy">Healthy</button></div>
@@ -178,7 +178,7 @@ th:first-child,td:first-child{text-align:left}
   <div class="grid">
     <div class="card">
       <h2>1 · Upload new labelled data</h2>
-      <p class="muted">Select many images of one class, or a <b>.zip</b> with folders named <code>angular_leaf_spot/</code>, <code>bean_rust/</code>, <code>healthy/</code>.</p>
+      <p class="muted">Select many images of one class, or a <b>.zip</b> with folders named <code>angular_leaf_spot/</code>, <code>bean_rust/</code>, <code>healthy/</code>. Each image is saved in the SQLite database <code>data/bean_leaf.db</code>, table <code>uploaded_images</code>, for retraining.</p>
       <label class="drop" id="upDrop">Drop images or a .zip here, or click to choose
         <input type="file" id="upFiles" multiple accept="image/*,.zip"></label>
       <div class="row">
@@ -188,18 +188,24 @@ th:first-child,td:first-child{text-align:left}
         <button class="primary" id="btnUpload" disabled>Upload</button>
       </div>
       <pre class="log" id="upOut" hidden></pre>
+      <h3 style="margin-top:16px">Database · data/bean_leaf.db · uploaded_images</h3>
+      <div class="table-scroll"><table id="tUploads">
+        <thead><tr><th>Id</th><th>Label</th><th>Original</th><th>Preprocessed</th><th>Processed</th><th>Used in training</th><th>Version</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
     </div>
     <div class="card">
       <h2>2 · Retrain</h2>
-      <div class="tiles" style="grid-template-columns:1fr 1fr">
+      <div class="tiles">
         <div class="tile"><div class="k">New images waiting</div><div class="v" id="pending">–</div><div class="s" id="threshold"></div></div>
+        <div class="tile"><div class="k">Database rows</div><div class="v" id="dbRows">–</div><div class="s">uploaded_images</div></div>
         <div class="tile"><div class="k">Job</div><div class="v" id="jobState">–</div><div class="s" id="jobReason"></div></div>
       </div>
       <div class="row">
         <button class="primary" id="btnRetrain">Retrain with new data</button>
         <button class="secondary" id="btnScratch">Full training from scratch</button>
       </div>
-      <p class="muted">Retraining warm-starts from the production model, adds the uploaded images, and re-checks the held-out test set. The new version is promoted only if it isn't worse.</p>
+      <p class="muted">Retraining preprocesses the images stored in the database (decode, RGB, resize to 160×160, saved back into the same rows), warm-starts from the production model, and re-checks the held-out test set. The new version is promoted only if it isn't worse.</p>
       <pre class="log" id="jobLog">no job yet</pre>
     </div>
     <div class="card">
@@ -286,7 +292,7 @@ function wireDrop(dropId,inputId,onFiles){
   d.ondragleave=()=>d.classList.remove("hover");
   d.ondrop=e=>{e.preventDefault();d.classList.remove("hover");onFiles([...e.dataTransfer.files]);};
 }
-async function predictBlob(blob,name="leaf.jpg"){
+async function predictBlob(blob,name="leaf.jpg",expected=null){
   const img=$("predImg");img.src=URL.createObjectURL(blob);img.hidden=false;
   $("predOut").innerHTML='<span class="muted">Analysing…</span>';
   const fd=new FormData();fd.append("file",blob,name);
@@ -295,13 +301,14 @@ async function predictBlob(blob,name="leaf.jpg"){
   const j=await r.json();
   if(!r.ok){$("predOut").textContent=j.detail||"error";return;}
   const bars=CLASSES.map(c=>`<div class="bar"><span>${NICE[c]}</span><div class="track"><div class="fill" style="width:${(j.probabilities[c]*100).toFixed(1)}%;background:${color(c)}"></div></div><span>${fmtPct(j.probabilities[c])}</span></div>`).join("");
+  const verdict=expected?`<p class="status ${j.label===expected?"ok":"down"}"><span class="dot"></span>True class ${NICE[expected]} · predicted ${NICE[j.label]} · ${j.label===expected?"correct":"mismatch"}</p>`:"";
   $("predOut").innerHTML=`<div class="tile" style="margin-bottom:12px"><div class="k">Diagnosis</div><div class="v">${NICE[j.label]}</div><div class="s">${fmtPct(j.confidence)} confidence</div></div>
-    ${bars}<p class="story">${j.advice}</p>
+    ${bars}${verdict}<p class="story">${j.advice}</p>
     <p class="muted">Model ${j.model_version} · inference ${j.inference_ms} ms · total round trip ${rt.toFixed(0)} ms · container ${j.container}</p>`;
 }
 wireDrop("predDrop","predFile",f=>f[0]&&predictBlob(f[0],f[0].name));
 document.querySelectorAll("[data-sample]").forEach(b=>b.onclick=async()=>{
-  const r=await fetch(`/data/sample/${b.dataset.sample}?seed=${Math.floor(Math.random()*1e6)}`);predictBlob(await r.blob(),"sample.jpg");});
+  const r=await fetch(`/data/sample/${b.dataset.sample}?demo=1`);predictBlob(await r.blob(),"sample.jpg",b.dataset.sample);});
 
 // ---------- insights ----------
 function histChart(id,feat,summary,xlabel){
@@ -363,9 +370,10 @@ $("btnUpload").onclick=async()=>{
   const lab=$("upLabel").value;if(lab)fd.append("label",lab);
   $("btnUpload").disabled=true;$("upOut").hidden=false;$("upOut").textContent="uploading…";
   const r=await fetch("/upload",{method:"POST",body:fd});const j=await r.json();
-  $("upOut").textContent=r.ok?`saved ${j.total_saved} image(s): ${JSON.stringify(j.saved)}\n`+
+  $("upOut").textContent=r.ok?`saved ${j.total_saved} image(s) to ${j.database} table ${j.database_table} (${j.database_rows} rows in the database)\n`+
+    `labels: ${JSON.stringify(j.saved)}\n`+
     (j.rejected.length?`rejected: ${j.rejected.slice(0,5).join("; ")}\n`:"")+
-    (j.auto_retrain_triggered?"⚡ threshold reached, retraining started automatically":`${j.pending_uploads} image(s) waiting for retraining`):(j.detail||"error");
+    (j.auto_retrain_triggered?"threshold reached, retraining started automatically":`${j.pending_uploads} image(s) waiting for retraining`):(j.detail||"error");
   $("btnUpload").disabled=false;loadRetrain();
 };
 async function startRetrain(scratch){
@@ -376,9 +384,19 @@ async function startRetrain(scratch){
 $("btnRetrain").onclick=()=>startRetrain(false);
 $("btnScratch").onclick=()=>confirm("Full training takes several minutes. Continue?")&&startRetrain(true);
 let jobTimer=null;
+function renderUploads(rows){
+  const tb=$("tUploads").tBodies[0];
+  if(!rows.length){tb.innerHTML='<tr><td colspan="7">No uploads saved yet.</td></tr>';return;}
+  const size=(w,h)=>w&&h?`${w}×${h}`:"–";
+  tb.innerHTML=rows.map(r=>`<tr><td>${r.id}</td><td>${NICE[r.label]||r.label}</td><td>${size(r.width,r.height)}</td><td>${r.preprocessed?"yes":"no"}</td><td>${r.preprocessed?size(r.processed_width,r.processed_height):"–"}</td><td>${r.used_for_training?"yes":"no"}</td><td>${r.trained_in_version||"–"}</td></tr>`).join("");
+}
 async function loadRetrain(){
   const st=await (await fetch("/data/stats")).json();
   $("pending").textContent=st.pending_uploads;$("threshold").textContent=`auto-retrain at ${st.retrain_threshold}`;
+  try{
+    const up=await (await fetch("/data/uploads",{cache:"no-store"})).json();
+    $("dbRows").textContent=up.count;renderUploads(up.rows||[]);
+  }catch(e){}
   const j=await (await fetch("/retrain/status",{cache:"no-store"})).json();
   $("jobState").textContent=j.state;$("jobReason").textContent=j.reason||"";
   let txt=(j.log||[]).join("\n");

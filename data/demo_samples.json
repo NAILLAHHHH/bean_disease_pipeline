@@ -1,0 +1,14 @@
+{
+  "angular_leaf_spot": {
+    "file": "test/angular_leaf_spot/test_00015.jpg",
+    "confidence": 1.0
+  },
+  "bean_rust": {
+    "file": "test/bean_rust/test_00062.jpg",
+    "confidence": 0.9999
+  },
+  "healthy": {
+    "file": "test/healthy/validation_00125.jpg",
+    "confidence": 1.0
+  }
+}
