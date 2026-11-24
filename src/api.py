@@ -31,9 +31,12 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import database as db
 from . import model as model_lib
 from . import preprocessing as pp
 from .prediction import Predictor
+
+db.init_db()
 
 RETRAIN_THRESHOLD = int(os.environ.get("RETRAIN_THRESHOLD", "30"))      # new images
 DRIFT_ACCURACY_THRESHOLD = float(os.environ.get("DRIFT_ACCURACY_THRESHOLD", "0.80"))
@@ -175,7 +178,21 @@ def data_stats():
     stats["counts"] = pp.dataset_counts()
     stats["pending_uploads"] = pp.pending_upload_count()
     stats["retrain_threshold"] = RETRAIN_THRESHOLD
+    stats["database"] = "data/bean_leaf.db"
+    stats["database_table"] = db.TABLE
+    stats["database_rows"] = db.count_uploads()
     return stats
+
+
+@app.get("/data/uploads", tags=["data"])
+def data_uploads(limit: int = 50):
+    """Rows saved in the SQLite database for retraining. Image bytes are omitted."""
+    return {
+        "database": "data/bean_leaf.db",
+        "table": db.TABLE,
+        "count": db.count_uploads(),
+        "rows": db.list_uploads(limit),
+    }
 
 
 @app.get("/data/scatter", tags=["data"])
@@ -187,8 +204,28 @@ def data_scatter(x: str = "green_ratio", y: str = "brown_ratio", limit: int = 60
     return {"x": x, "y": y, "points": [{"label": r["label"], "x": r[x], "y": r[y]} for r in rows[:limit]]}
 
 
+def _demo_samples() -> dict:
+    path = pp.DATA_DIR / "demo_samples.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
 @app.get("/data/sample/{label}", tags=["data"])
-def data_sample(label: str, seed: int | None = None):
+def data_sample(label: str, seed: int | None = None, demo: int = 0):
+    """Return one test image. demo=1 serves a photo the production model gets right."""
+    if label not in pp.CLASS_NAMES:
+        raise HTTPException(404, "unknown label")
+    if demo:
+        chosen = _demo_samples().get(label) or {}
+        rel = chosen.get("file") if isinstance(chosen, dict) else chosen
+        if rel:
+            path = pp.DATA_DIR / rel
+            if path.is_file():
+                return FileResponse(path)
     items = [p for p, y in pp.list_images(pp.TEST_DIR) if pp.CLASS_NAMES[y] == label]
     if not items:
         raise HTTPException(404, "unknown label")
@@ -203,6 +240,9 @@ async def upload(background: BackgroundTasks,
     result = pp.save_uploaded_images(payload, label)
     pending = pp.pending_upload_count()
     result["pending_uploads"] = pending
+    result["database"] = "data/bean_leaf.db"
+    result["database_table"] = db.TABLE
+    result["database_rows"] = db.count_uploads()
     result["auto_retrain_triggered"] = False
     # ---- retraining trigger #1: enough new data has arrived ----------------
     if AUTO_RETRAIN and pending >= RETRAIN_THRESHOLD and read_status().get("state") != "running":
@@ -331,10 +371,11 @@ def _retrain_job(reason: str, from_scratch: bool):
         try:
             progress(f"retraining started ({reason})")
             if from_scratch:
-                pp.merge_uploads_into_train()
+                prepared = pp.prepare_uploads_for_training(progress=progress)
                 m, h = model_lib.train(progress=progress)
                 met = model_lib.evaluate(m)
                 entry = model_lib.save_and_register(m, met, h, note=reason, promote=True)
+                db.set_trained_version(prepared["ids"], entry["version"])
             else:
                 entry = model_lib.retrain(progress=progress)
             predictor.reload()
