@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import database as db
 from . import preprocessing as pp
 
 MODELS_DIR = pp.ROOT / "models"
@@ -228,14 +229,15 @@ def retrain(epochs_head: int = 4, epochs_finetune: int = 4, min_gain: float = -0
             progress=None) -> dict:
     """Retrain the production model with newly uploaded data.
 
-    1. Move data/uploads/<class>/* into data/train/<class>/.
-    2. Warm-start from the current production model (pre-trained weights).
-    3. Train (head, then fine-tune), evaluate on the untouched test set.
-    4. Promote only if test accuracy >= production accuracy + min_gain.
+    1. Preprocess rows in the upload database (decode, RGB, resize to 160×160).
+    2. Move those images into data/train/<class>/.
+    3. Warm-start from the current production model (the custom pre-trained weights).
+    4. Train (head, then fine-tune), evaluate on the untouched test set.
+    5. Promote only if test accuracy >= production accuracy + min_gain.
     """
     log = progress or (lambda m: None)
-    moved = pp.merge_uploads_into_train()
-    log(f"merged {moved} uploaded images into the training set")
+    prepared = pp.prepare_uploads_for_training(progress=log)
+    moved = prepared["moved"]
 
     prev = current_model_info()
     prev_acc = prev.get("metrics", {}).get("accuracy")
@@ -255,6 +257,7 @@ def retrain(epochs_head: int = 4, epochs_finetune: int = 4, min_gain: float = -0
     promote = prev_acc is None or metrics["accuracy"] >= prev_acc + min_gain
     entry = save_and_register(model, metrics, history,
                               note=f"retrain with {moved} new images", promote=promote)
+    db.set_trained_version(prepared["ids"], entry["version"])
     entry["previous_accuracy"] = prev_acc
     entry["new_images"] = moved
     log(f"candidate {entry['version']} accuracy={metrics['accuracy']:.4f} "
