@@ -9,11 +9,13 @@ services:
       - RETRAIN_THRESHOLD=30
       - AUTO_RETRAIN=true
     volumes:
-      - shared_models:/app/models      # every replica sees the promoted model
-      - shared_data:/app/data          # uploads + training data shared by replicas
+      # Bind mounts so the image's model and dataset are visible on first start.
+      # Named volumes would hide the files copied into the image.
+      - ./models:/app/models
+      - ./data:/app/data
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 1.5g }
+        limits: { cpus: "1.0", memory: 4g }
   lb:
     image: nginx:1.27-alpine
     volumes:
@@ -21,6 +23,3 @@ services:
     ports:
       - "8080:80"
     depends_on: [api]
-volumes:
-  shared_models:
-  shared_data:

@@ -240,10 +240,10 @@ print(json.dumps(P.predict_file(sorted((pp.TEST_DIR / 'bean_rust').iterdir())[0]
 md("""
 ## 7. Retraining
 `M.retrain()` is what the API's **Retrain** button and the automatic triggers call:
-1. move newly uploaded images from `data/uploads/<class>/` into `data/train/`
-2. **warm-start from the production model** (custom pre-trained weights), so it isn't trained from scratch
-3. head training, then fine-tuning on the enlarged dataset
-4. evaluate on the untouched test set and **promote only if accuracy ≥ production − 1%**
+1. save the upload into SQLite `data/bean_leaf.db` (table `uploaded_images`, image bytes included)
+2. **preprocess** those rows: decode, convert to RGB, resize to 160×160, and store the processed image in the same table
+3. move the preprocessed images into `data/train/` and **warm-start from the production model** (custom pre-trained weights)
+4. head training, then fine-tuning, then evaluate on the untouched test set and **promote only if accuracy ≥ production − 1%**
 
 Retraining triggers in the deployed API:
 - **Manual**: the "Retrain" button (`POST /retrain`)

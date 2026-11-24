@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Video demo** | _YouTube link: add after recording_ |
-| **Live app (Render)** | _https://bean-leaf-doctor.onrender.com: add your URL after deploying_ |
+| **App** | Dockerized web UI at http://localhost:8080 |
 | **API docs** | `<app-url>/docs` (Swagger UI) |
 | **GitHub** | _add repo URL_ |
 
@@ -22,7 +22,7 @@ This repository is the full ML lifecycle around that model:
 | Data processing | `src/preprocessing.py` decodes, resizes to 160×160, augments, builds a stratified split and `tf.data` pipeline |
 | Model creation | `src/model.py → build_model()` MobileNetV2 transfer learning + regularised head |
 | Model testing | `src/model.py → evaluate()` accuracy, precision, recall, F1, ROC-AUC, log-loss, confusion matrix |
-| Model retraining + triggers | `src/model.py → retrain()` and `src/api.py` (manual button, data-volume trigger, drift trigger) |
+| Model retraining + triggers | `src/model.py → retrain()` and `src/api.py` (manual button, data-volume trigger, drift trigger). Uploads are stored in SQLite `data/bean_leaf.db` |
 | Prediction | `src/prediction.py` |
 | API | `src/api.py` (FastAPI) |
 | UI | `ui/index.html`, served by the API at `/` |
@@ -94,16 +94,19 @@ The dashboard's **Data insights** tab shows these distributions interactively.
 | Model up-time | **Monitor** tab: status, up-time, health-check latency chart, per-endpoint latency (avg/p95), container id. `GET /health`, `GET /monitoring` |
 | Predict one image | **Predict** tab: drag-and-drop a photo → class, confidence per class, treatment advice. `POST /predict` |
 | Visualisations | **Data insights** tab: class balance, sample images, 3 feature distributions with interpretations, scatter, feature table |
-| Bulk upload | **Upload & retrain** tab: many images + a label, or a `.zip` with class folders. `POST /upload` |
+| Bulk upload | **Upload & retrain** tab: many images + a label, or a `.zip` with class folders. Saved into SQLite `data/bean_leaf.db` (`uploaded_images`). `POST /upload` |
 | Trigger retraining | **Retrain** button (`POST /retrain`), live job log (`GET /retrain/status`) |
 | Evaluation in production | Upload a labelled zip → live model scored with all metrics + drift check. `POST /model/evaluate` |
 | Model history | **Model** tab: metrics, confusion matrix, training curve, every version and whether it was promoted |
 
 ### How retraining works
 
-1. Uploaded images are validated and stored in `data/uploads/<class>/`.
-2. Retraining moves them into `data/train/`, **warm-starts from the current production model** (custom
-   pre-trained weights), trains the head, fine-tunes, then evaluates on the untouched test set.
+1. Uploaded images are validated and saved in the SQLite database `data/bean_leaf.db`, table
+   `uploaded_images` (the image bytes are in the row). A copy is also kept in `data/uploads/<class>/`.
+2. Retraining **preprocesses those rows**: decode, convert to RGB, resize to 160×160, and write the
+   processed image back into the same database row. It then moves them into `data/train/`,
+   **warm-starts from the current production model** (custom pre-trained weights), trains the head,
+   fine-tunes, then evaluates on the untouched test set.
 3. The new version is **promoted only if accuracy ≥ production − 1%**. Every version is saved in `models/versions/`
    and `models/registry.json`.
 4. Every API container notices the registry change and hot-reloads the new model with no downtime.
@@ -154,7 +157,8 @@ docker compose up --build --scale api=3
 ```
 
 Open http://localhost:8080. nginx round-robins across the API containers. They share the `models`
-and `data` volumes, so an upload or retrain on one container is visible to all.
+and `data` folders (bind mounts), including `data/bean_leaf.db`, so an upload or retrain on one
+container is visible to all.
 
 ### 3. Deploy to Render (cloud)
 
@@ -181,8 +185,7 @@ For the interactive Locust UI: `locust -f locust/locustfile.py --host http://loc
 
 ## Results from the flood-request simulation
 
-Setup: Docker Compose on a MacBook (Apple M1, 8 CPUs given to Docker). Each API container is limited to **1 CPU / 1.5 GB**,
-behind an nginx round-robin load balancer. Load: **100 concurrent users** (spawned at 20/s), each sending a real leaf
+Setup: Docker Compose on a MacBook (Apple M1, 8 CPUs given to Docker). Each API container in this run was limited to **1 CPU / 1.5 GB**, behind an nginx round-robin load balancer. `docker-compose.yml` now allows 4 GB so a retrain is not killed. Load: **100 concurrent users** (spawned at 20/s), each sending a real leaf
 photo to `/predict` every 0.5–1.5 s (plus occasional `/health`), for **60 s** per configuration.
 Latency columns are for `/predict`.
 
@@ -215,6 +218,7 @@ bean_disease_pipeline/
 │   ├── bean_disease_pipeline.ipynb     # executed notebook
 │   └── build_notebook.py               # regenerates it
 ├── src/
+│   ├── database.py                     # SQLite store for uploaded training images
 │   ├── preprocessing.py                # acquisition, processing, features, uploads
 │   ├── model.py                        # build, train, evaluate, retrain, registry
 │   ├── prediction.py                   # load model + predict
@@ -238,7 +242,8 @@ bean_disease_pipeline/
 | GET | `/monitoring` | per-endpoint request counts, avg/p50/p95/max latency |
 | POST | `/predict` | one image → class + probabilities + advice |
 | POST | `/predict/batch` | several images |
-| POST | `/upload` | bulk images (+`label`) or a zip of class folders |
+| POST | `/upload` | bulk images (+`label`) or a zip of class folders, saved to the database |
+| GET | `/data/uploads` | rows in `uploaded_images` (no image bytes) |
 | POST | `/retrain` | start retraining (`from_scratch=true` for full training) |
 | GET | `/retrain/status` | job state + live log |
 | POST | `/model/evaluate` | production evaluation on labelled data + drift check |
