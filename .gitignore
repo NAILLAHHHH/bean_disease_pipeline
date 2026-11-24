@@ -1,10 +1,12 @@
 .venv/
+.DS_Store
 __pycache__/
 .ipynb_checkpoints/
 data/uploads/
+data/uploads_preprocessed/
+data/*.db
+data/*.db-*
 data/retrain_status.json
 data/.retrain.lock
 data/production_evaluations.jsonl
 models/versions/
-
-.DS_Store

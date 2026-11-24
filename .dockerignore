@@ -5,6 +5,9 @@ notebook
 locust/results
 models/versions
 data/uploads
+data/uploads_preprocessed
+data/*.db
+data/*.db-*
 data/retrain_status.json
 data/.retrain.lock
 data/production_evaluations.jsonl

@@ -33,6 +33,8 @@ from typing import Iterable
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
+from . import database as db
+
 ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 DATA_DIR = ROOT / "data"
 TRAIN_DIR = DATA_DIR / "train"
@@ -122,13 +124,14 @@ def validate_image_bytes(data: bytes) -> bool:
 
 
 def save_uploaded_images(files: Iterable[tuple[str, bytes]], label: str | None) -> dict:
-    """Save uploaded files into data/uploads/<class>/.
+    """Save uploaded files into the SQLite database and data/uploads/<class>/.
 
     `files` is an iterable of (filename, bytes). Each item may be an image
     (requires `label`) or a .zip containing <class_name>/<image> entries
-    (label taken from the folder name inside the zip).
+    (label taken from the folder name inside the zip). The image bytes are
+    stored in data/bean_leaf.db, table uploaded_images, for retraining.
     """
-    saved, rejected = {c: 0 for c in CLASS_NAMES}, []
+    saved, rejected, saved_ids = {c: 0 for c in CLASS_NAMES}, [], []
 
     def _store(name: str, data: bytes, cls: str):
         cls = normalise_label(cls)
@@ -140,8 +143,23 @@ def save_uploaded_images(files: Iterable[tuple[str, bytes]], label: str | None) 
             return
         out = UPLOAD_DIR / cls
         out.mkdir(parents=True, exist_ok=True)
-        (out / f"{uuid.uuid4().hex[:12]}{Path(name).suffix.lower()}").write_bytes(data)
+        dest = out / f"{uuid.uuid4().hex[:12]}{Path(name).suffix.lower()}"
+        dest.write_bytes(data)
         saved[cls] += 1
+        width = height = None
+        try:
+            with Image.open(io.BytesIO(data)) as im:
+                width, height = im.size
+        except (UnidentifiedImageError, OSError, ValueError):
+            pass
+        saved_ids.append(db.insert_upload(
+            original_name=Path(name).name,
+            label=cls,
+            content=data,
+            width=width,
+            height=height,
+            raw_path=str(dest.relative_to(ROOT)),
+        ))
 
     for name, data in files:
         if name.lower().endswith(".zip"):
@@ -154,7 +172,8 @@ def save_uploaded_images(files: Iterable[tuple[str, bytes]], label: str | None) 
                     _store(entry.filename, zf.read(entry), cls or "")
         else:
             _store(name, data, label or "")
-    return {"saved": saved, "total_saved": sum(saved.values()), "rejected": rejected}
+    return {"saved": saved, "total_saved": sum(saved.values()), "rejected": rejected,
+            "database_ids": saved_ids}
 
 
 def normalise_label(label: str) -> str | None:
@@ -168,20 +187,96 @@ def pending_upload_count() -> int:
     return _count_images(UPLOAD_DIR)
 
 
-def merge_uploads_into_train() -> int:
-    """Move uploaded images into the training set (called by retraining)."""
-    moved = 0
-    for c in CLASS_NAMES:
-        src = UPLOAD_DIR / c
-        if not src.exists():
+def preprocess_pending_uploads() -> dict:
+    """Decode, convert to RGB and resize every uploaded image that is still raw.
+
+    The processed JPEG is written back into the uploaded_images row (and to
+    data/uploads_preprocessed/ so retraining can read a file). Originals stay
+    in the database until retraining consumes the row.
+    """
+    rows = db.unpreprocessed()
+    by_class = {c: 0 for c in CLASS_NAMES}
+    ids: list[int] = []
+    for row in rows:
+        arr = load_image(bytes(row["content"]))
+        image = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG", quality=95)
+        processed = buf.getvalue()
+        out_dir = DATA_DIR / "uploads_preprocessed" / row["label"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{row['id']}.jpg"
+        path.write_bytes(processed)
+        db.mark_preprocessed(int(row["id"]), processed, IMG_SIZE[0], IMG_SIZE[1],
+                             str(path.relative_to(ROOT)))
+        by_class[row["label"]] += 1
+        ids.append(int(row["id"]))
+    return {"preprocessed": len(ids), "by_class": by_class, "ids": ids}
+
+
+def merge_uploads_into_train() -> dict:
+    """Move preprocessed uploads into data/train and mark those database rows used.
+
+    Also picks up any image sitting in data/uploads/ with no database row.
+    """
+    preprocess_pending_uploads()
+    ready = db.ready_for_training()
+    moved_ids: list[int] = []
+    for row in ready:
+        src = ROOT / row["processed_path"] if row.get("processed_path") else None
+        if (src is None or not src.exists()) and row.get("processed"):
+            fallback = DATA_DIR / "uploads_preprocessed" / row["label"] / f"{row['id']}.jpg"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            fallback.write_bytes(row["processed"])
+            src = fallback
+        if src is None or not src.exists():
             continue
-        dst = TRAIN_DIR / c
-        dst.mkdir(parents=True, exist_ok=True)
-        for p in src.iterdir():
-            if p.suffix.lower() in ALLOWED_EXT:
-                shutil.move(str(p), dst / f"upload_{p.name}")
-                moved += 1
-    return moved
+        dst_dir = TRAIN_DIR / row["label"]
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), dst_dir / f"upload_{row['id']}.jpg")
+        moved_ids.append(int(row["id"]))
+        raw = row.get("raw_path")
+        if raw:
+            raw_path = ROOT / raw
+            if raw_path.is_file():
+                raw_path.unlink()
+    db.mark_used(moved_ids)
+
+    legacy = 0
+    claimed = {ROOT / r["raw_path"] for r in ready if r.get("raw_path")}
+    for c in CLASS_NAMES:
+        src_dir = UPLOAD_DIR / c
+        if not src_dir.exists():
+            continue
+        dst_dir = TRAIN_DIR / c
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for p in list(src_dir.iterdir()):
+            if p.suffix.lower() not in ALLOWED_EXT or p in claimed:
+                continue
+            shutil.move(str(p), dst_dir / f"upload_{p.name}")
+            legacy += 1
+    return {"moved": len(moved_ids) + legacy, "ids": moved_ids}
+
+
+def prepare_uploads_for_training(progress=None) -> dict:
+    """Preprocess database uploads, then merge them into the training set.
+
+    This is the step retraining runs before it warm-starts the production model.
+    """
+    prep = preprocess_pending_uploads()
+    if progress:
+        w, h = IMG_SIZE
+        progress(
+            f"preprocessed {prep['preprocessed']} uploaded images: "
+            f"decode, convert to RGB, resize to {w}×{h}, save the processed image in the database"
+        )
+        if prep["preprocessed"]:
+            bits = ", ".join(f"{name} {n}" for name, n in prep["by_class"].items() if n)
+            progress(f"preprocessed by class: {bits}")
+    merged = merge_uploads_into_train()
+    if progress:
+        progress(f"merged {merged['moved']} preprocessed images into the training set")
+    return merged
 
 
 # --------------------------------------------------------------------------- #
