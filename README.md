@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Video demo** | _YouTube link: add after recording_ |
+| **Video demo** | https://youtu.be/kllqAhe_FEg |
 | **App** | Dockerized web UI at http://localhost:8080 |
-| **API docs** | `<app-url>/docs` (Swagger UI) |
-| **GitHub** | _add repo URL_ |
+| **API docs** | `http://localhost:8080/docs` (Swagger UI) |
+| **GitHub** |https://github.com/NAILLAHHHH/bean_disease_pipeline|
 
 ## Project description
 
